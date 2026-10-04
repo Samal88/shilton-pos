@@ -5,7 +5,8 @@ import { useState } from 'react';
 interface InventoryItem {
   id: number;
   name: string;
-  price: number;
+  price: number; // විකුණුම් මිල
+  cost: number;  // නිෂ්පාදන වියදම (Cost)
   stock: number;
   category: string;
 }
@@ -19,6 +20,8 @@ interface SaleRecord {
   date: string;
   items: CartItem[];
   total: number;
+  totalCost: number;
+  profit: number;
   tax: number;
 }
 
@@ -33,20 +36,22 @@ export default function ShiltonPOS() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
 
-  // Inventory State
+  // Inventory State (Cost සහ Price සමඟ)
   const [inventory, setInventory] = useState<InventoryItem[]>([
-    { id: 1, name: 'Chicken Meal (චිකන්)', price: 380, stock: 50, category: 'Main' },
-    { id: 2, name: 'Fish Meal (මාළු)', price: 300, stock: 40, category: 'Main' },
-    { id: 3, name: 'Egg Meal (බිත්තර)', price: 300, stock: 60, category: 'Main' },
-    { id: 4, name: 'Ice Coffee (අයිස් කෝපි)', price: 200, stock: 100, category: 'Beverage' },
+    { id: 1, name: 'Chicken Meal (චිකන්)', price: 380, cost: 220, stock: 50, category: 'Main' },
+    { id: 2, name: 'Fish Meal (මාළු)', price: 300, cost: 180, stock: 40, category: 'Main' },
+    { id: 3, name: 'Egg Meal (බිත්තර)', price: 300, cost: 150, stock: 60, category: 'Main' },
+    { id: 4, name: 'Ice Coffee (අයිස් කෝපි)', price: 200, cost: 80, stock: 100, category: 'Beverage' },
   ]);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [salesHistory, setSalesHistory] = useState<SaleRecord[]>([]);
 
-  // New Item Form State
+  // New/Edit Item Form State
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [newItemName, setNewItemName] = useState('');
   const [newItemPrice, setNewItemPrice] = useState('');
+  const [newItemCost, setNewItemCost] = useState('');
   const [newItemStock, setNewItemStock] = useState('');
   const [newItemCategory, setNewItemCategory] = useState('Main');
 
@@ -77,6 +82,8 @@ export default function ShiltonPOS() {
   const handleCheckout = () => {
     if (cart.length === 0) return;
     const totalAmount = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+    const totalCostAmount = cart.reduce((sum, item) => sum + item.cost * item.qty, 0);
+    const profitAmount = totalAmount - totalCostAmount;
 
     const updatedInventory = inventory.map((invItem) => {
       const cartItem = cart.find((c) => c.id === invItem.id);
@@ -92,6 +99,8 @@ export default function ShiltonPOS() {
       date: new Date().toLocaleString(),
       items: [...cart],
       total: totalAmount,
+      totalCost: totalCostAmount,
+      profit: profitAmount,
       tax: totalAmount * 0.025,
     };
     setSalesHistory([newSale, ...salesHistory]);
@@ -99,24 +108,61 @@ export default function ShiltonPOS() {
     alert('බිල්පත සාර්ථකව සකස් විය!');
   };
 
-  const handleAddInventoryItem = (e: React.FormEvent) => {
+  const handleSaveInventoryItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItemName || !newItemPrice) return;
-    const newItem: InventoryItem = {
-      id: Date.now(),
-      name: newItemName,
-      price: parseFloat(newItemPrice),
-      stock: parseInt(newItemStock) || 0,
-      category: newItemCategory,
-    };
-    setInventory([...inventory, newItem]);
+    if (!newItemName || !newItemPrice || !newItemCost) return;
+
+    if (editingId !== null) {
+      setInventory(
+        inventory.map((item) =>
+          item.id === editingId
+            ? {
+                ...item,
+                name: newItemName,
+                price: parseFloat(newItemPrice),
+                cost: parseFloat(newItemCost),
+                stock: parseInt(newItemStock) || 0,
+                category: newItemCategory,
+              }
+            : item
+        )
+      );
+      setEditingId(null);
+      alert('අයිතමය සාර්ථකව යාවත්කාලීන කරන ලදී!');
+    } else {
+      const newItem: InventoryItem = {
+        id: Date.now(),
+        name: newItemName,
+        price: parseFloat(newItemPrice),
+        cost: parseFloat(newItemCost),
+        stock: parseInt(newItemStock) || 0,
+        category: newItemCategory,
+      };
+      setInventory([...inventory, newItem]);
+      alert('අයිතමය සාර්ථකව එකතු කරන ලදී!');
+    }
+
     setNewItemName('');
     setNewItemPrice('');
+    setNewItemCost('');
     setNewItemStock('');
-    alert('අයිතමය සාර්ථකව එකතු කරන ලදී!');
   };
 
-  // Add Category (Admin Only)
+  const handleEditClick = (item: InventoryItem) => {
+    setEditingId(item.id);
+    setNewItemName(item.name);
+    setNewItemPrice(item.price.toString());
+    setNewItemCost(item.cost.toString());
+    setNewItemStock(item.stock.toString());
+    setNewItemCategory(item.category);
+  };
+
+  const handleDeleteItem = (id: number) => {
+    if (confirm('මෙම අයිතමය ඉවත් කිරීමට අවශ්‍ය බව තහවුරු කරන්නද?')) {
+      setInventory(inventory.filter((item) => item.id !== id));
+    }
+  };
+
   const handleAddCategory = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCategoryName || categories.includes(newCategoryName)) return;
@@ -125,7 +171,6 @@ export default function ShiltonPOS() {
     alert('නව කැටගිරිය එකතු කරන ලදී!');
   };
 
-  // Remove Category (Admin Only)
   const handleRemoveCategory = (catToRemove: string) => {
     if (confirm(`ඔබට '${catToRemove}' කැටගිරිය මකා දැමීමට අවශ්‍යද?`)) {
       setCategories(categories.filter((c) => c !== catToRemove));
@@ -170,6 +215,11 @@ export default function ShiltonPOS() {
     ? inventory 
     : inventory.filter(item => item.category === selectedCategory);
 
+  // Totals for Daily / Sales Report
+  const totalSalesAll = salesHistory.reduce((sum, s) => sum + s.total, 0);
+  const totalCostAll = salesHistory.reduce((sum, s) => sum + s.totalCost, 0);
+  const totalProfitAll = salesHistory.reduce((sum, s) => sum + s.profit, 0);
+
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
       <header className="bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center">
@@ -183,6 +233,7 @@ export default function ShiltonPOS() {
           {user.role === 'admin' && (
             <>
               <button onClick={() => setActiveTab('manage')} className={`px-4 py-2 rounded ${activeTab === 'manage' ? 'bg-orange-600' : 'bg-gray-700'}`}>Admin Manage</button>
+              <button onClick={() => setActiveTab('daily_report')} className={`px-4 py-2 rounded ${activeTab === 'daily_report' ? 'bg-orange-600' : 'bg-gray-700'}`}>Daily / Profit Report</button>
               <button onClick={() => setActiveTab('ird')} className={`px-4 py-2 rounded ${activeTab === 'ird' ? 'bg-orange-600' : 'bg-gray-700'}`}>IRD Reports</button>
             </>
           )}
@@ -194,7 +245,6 @@ export default function ShiltonPOS() {
         {activeTab === 'pos' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 space-y-6">
-              {/* Category Filter Bar */}
               <div className="bg-gray-800 p-4 rounded-xl border border-gray-700">
                 <h3 className="text-sm font-bold text-gray-400 mb-3">Categories</h3>
                 <div className="flex gap-2 overflow-x-auto pb-2">
@@ -216,7 +266,6 @@ export default function ShiltonPOS() {
                 </div>
               </div>
 
-              {/* Items Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {filteredInventory.map((item) => (
                   <button
@@ -238,7 +287,6 @@ export default function ShiltonPOS() {
               </div>
             </div>
 
-            {/* Current Bill Panel */}
             <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 flex flex-col justify-between shadow-md">
               <div>
                 <h2 className="text-lg font-bold mb-4 border-b border-gray-700 pb-2">Current Bill</h2>
@@ -285,19 +333,46 @@ export default function ShiltonPOS() {
                   <tr className="bg-gray-700 text-gray-300">
                     <th className="p-3">Item Name</th>
                     <th className="p-3">Category</th>
-                    <th className="p-3">Price</th>
+                    <th className="p-3">Cost Price</th>
+                    <th className="p-3">Selling Price</th>
+                    <th className="p-3">Profit per Item</th>
                     <th className="p-3">Available Stock</th>
+                    {user.role === 'admin' && <th className="p-3">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {inventory.map((item) => (
-                    <tr key={item.id} className="border-t border-gray-700">
-                      <td className="p-3">{item.name}</td>
-                      <td className="p-3">{item.category}</td>
-                      <td className="p-3">LKR {item.price}.00</td>
-                      <td className="p-3 font-bold text-orange-400">{item.stock}</td>
-                    </tr>
-                  ))}
+                  {inventory.map((item) => {
+                    const itemProfit = item.price - item.cost;
+                    return (
+                      <tr key={item.id} className="border-t border-gray-700">
+                        <td className="p-3">{item.name}</td>
+                        <td className="p-3">{item.category}</td>
+                        <td className="p-3 text-gray-400">LKR {item.cost}.00</td>
+                        <td className="p-3 text-green-400 font-bold">LKR {item.price}.00</td>
+                        <td className="p-3 text-orange-400 font-bold">LKR {itemProfit}.00</td>
+                        <td className="p-3 font-bold">{item.stock}</td>
+                        {user.role === 'admin' && (
+                          <td className="p-3 flex gap-2">
+                            <button
+                              onClick={() => {
+                                handleEditClick(item);
+                                setActiveTab('manage');
+                              }}
+                              className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs font-bold"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteItem(item.id)}
+                              className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-xs font-bold"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -306,10 +381,11 @@ export default function ShiltonPOS() {
 
         {activeTab === 'manage' && user.role === 'admin' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-            {/* Add New Item */}
             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-md">
-              <h2 className="text-xl font-bold mb-4 text-orange-400">Add New Menu Item</h2>
-              <form onSubmit={handleAddInventoryItem} className="space-y-4">
+              <h2 className="text-xl font-bold mb-4 text-orange-400">
+                {editingId !== null ? 'Edit Menu Item' : 'Add New Menu Item'}
+              </h2>
+              <form onSubmit={handleSaveInventoryItem} className="space-y-4">
                 <div>
                   <label className="block text-sm mb-1">Item Name</label>
                   <input
@@ -333,7 +409,17 @@ export default function ShiltonPOS() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm mb-1">Price (LKR)</label>
+                  <label className="block text-sm mb-1">Cost Price (වියදම - LKR)</label>
+                  <input
+                    type="number"
+                    value={newItemCost}
+                    onChange={(e) => setNewItemCost(e.target.value)}
+                    className="w-full p-2 rounded bg-gray-700 border border-gray-600"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Selling Price (විකුණුම් මිල - LKR)</label>
                   <input
                     type="number"
                     value={newItemPrice}
@@ -343,7 +429,7 @@ export default function ShiltonPOS() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm mb-1">Initial Stock Quantity</label>
+                  <label className="block text-sm mb-1">Stock Quantity</label>
                   <input
                     type="number"
                     value={newItemStock}
@@ -352,13 +438,29 @@ export default function ShiltonPOS() {
                     required
                   />
                 </div>
-                <button type="submit" className="w-full bg-orange-600 hover:bg-orange-700 p-2 rounded font-bold">
-                  Add Item
-                </button>
+                <div className="flex gap-2">
+                  <button type="submit" className="flex-1 bg-orange-600 hover:bg-orange-700 p-2 rounded font-bold">
+                    {editingId !== null ? 'Update Item' : 'Add Item'}
+                  </button>
+                  {editingId !== null && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(null);
+                        setNewItemName('');
+                        setNewItemPrice('');
+                        setNewItemCost('');
+                        setNewItemStock('');
+                      }}
+                      className="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded font-bold"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
               </form>
             </div>
 
-            {/* Manage Categories */}
             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-md">
               <h2 className="text-xl font-bold mb-4 text-orange-400">Manage Categories</h2>
               <form onSubmit={handleAddCategory} className="space-y-4 mb-6">
@@ -394,6 +496,58 @@ export default function ShiltonPOS() {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'daily_report' && user.role === 'admin' && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            <h2 className="text-2xl font-bold">දෛනික ආදායම් සහ ලාභ වාර්තාව (Daily Sales & Profit Dashboard)</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow">
+                <p className="text-sm text-gray-400">Total Sales (මුළු ආදායම)</p>
+                <h3 className="text-2xl font-bold text-green-400 mt-1">LKR {totalSalesAll}.00</h3>
+              </div>
+              <div className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow">
+                <p className="text-sm text-gray-400">Total Cost (මුළු නිෂ්පාදන වියදම)</p>
+                <h3 className="text-2xl font-bold text-orange-400 mt-1">LKR {totalCostAll}.00</h3>
+              </div>
+              <div className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow">
+                <p className="text-sm text-gray-400">Net Profit (ශුද්ධ ලාභය)</p>
+                <h3 className="text-2xl font-bold text-blue-400 mt-1">LKR {totalProfitAll}.00</h3>
+              </div>
+            </div>
+
+            <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700 p-4 shadow-md">
+              <h3 className="font-bold mb-4">Transaction History & Profit Breakdown</h3>
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-gray-700 text-gray-300">
+                    <th className="p-2">ID</th>
+                    <th className="p-2">Date & Time</th>
+                    <th className="p-2">Sales Amount</th>
+                    <th className="p-2">Cost Amount</th>
+                    <th className="p-2">Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {salesHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-6 text-gray-500">No sales recorded yet.</td>
+                    </tr>
+                  ) : (
+                    salesHistory.map((s) => (
+                      <tr key={s.id} className="border-t border-gray-700">
+                        <td className="p-2">#{s.id}</td>
+                        <td className="p-2">{s.date}</td>
+                        <td className="p-2 text-green-400 font-bold">LKR {s.total}.00</td>
+                        <td className="p-2 text-orange-400">LKR {s.totalCost}.00</td>
+                        <td className="p-2 text-blue-400 font-bold">LKR {s.profit}.00</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
