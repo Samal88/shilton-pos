@@ -5,8 +5,8 @@ import { useState } from 'react';
 interface InventoryItem {
   id: number;
   name: string;
-  price: number; // විකුණුම් මිල
-  cost: number;  // නිෂ්පාදන වියදම (Cost)
+  price: number;
+  cost: number;
   stock: number;
   category: string;
 }
@@ -23,6 +23,7 @@ interface SaleRecord {
   totalCost: number;
   profit: number;
   tax: number;
+  status: 'Active' | 'Voided';
 }
 
 export default function ShiltonPOS() {
@@ -36,7 +37,7 @@ export default function ShiltonPOS() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
 
-  // Inventory State (Cost සහ Price සමඟ)
+  // Inventory State
   const [inventory, setInventory] = useState<InventoryItem[]>([
     { id: 1, name: 'Chicken Meal (චිකන්)', price: 380, cost: 220, stock: 50, category: 'Main' },
     { id: 2, name: 'Fish Meal (මාළු)', price: 300, cost: 180, stock: 40, category: 'Main' },
@@ -79,12 +80,14 @@ export default function ShiltonPOS() {
     }
   };
 
+  // Checkout & Generate KOT + Bill
   const handleCheckout = () => {
     if (cart.length === 0) return;
     const totalAmount = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
     const totalCostAmount = cart.reduce((sum, item) => sum + item.cost * item.qty, 0);
     const profitAmount = totalAmount - totalCostAmount;
 
+    // Reduce Inventory
     const updatedInventory = inventory.map((invItem) => {
       const cartItem = cart.find((c) => c.id === invItem.id);
       if (cartItem) {
@@ -102,10 +105,42 @@ export default function ShiltonPOS() {
       totalCost: totalCostAmount,
       profit: profitAmount,
       tax: totalAmount * 0.025,
+      status: 'Active',
     };
+
     setSalesHistory([newSale, ...salesHistory]);
     setCart([]);
-    alert('බිල්පත සාර්ථකව සකස් විය!');
+    alert('ബිල්පත සාර්ථකව සකස් විය & KOT යැවුණි!');
+    setActiveTab('kot'); // Automatically switch to KOT view for kitchen
+  };
+
+  // Void Bill & Restore Stock
+  const handleVoidBill = (saleId: number) => {
+    if (user?.role !== 'admin') {
+      alert('ბිල් වොයිඩ් කිරීමට ඇඩ්මින් වරම අවශ්‍ය වේ!');
+      return;
+    }
+
+    const saleToVoid = salesHistory.find((s) => s.id === saleId);
+    if (!saleToVoid || saleToVoid.status === 'Voided') return;
+
+    if (confirm(`භාවිතා කළ බිල්පත් අංකය #${saleId} වොයිඩ් කිරීමට අවශ්‍ය බව තහවුරු කරන්නද?`)) {
+      // Restore stock
+      const restoredInventory = inventory.map((invItem) => {
+        const soldItem = saleToVoid.items.find((i) => i.id === invItem.id);
+        if (soldItem) {
+          return { ...invItem, stock: invItem.stock + soldItem.qty };
+        }
+        return invItem;
+      });
+      setInventory(restoredInventory);
+
+      // Mark sale as Voided
+      setSalesHistory(
+        salesHistory.map((s) => (s.id === saleId ? { ...s, status: 'Voided' } : s))
+      );
+      alert('බිල්පත සාර්ථකව වොයිඩ් කරන ලදී. ස්ටොක් ප්‍රතිස්ථාපනය විය.');
+    }
   };
 
   const handleSaveInventoryItem = (e: React.FormEvent) => {
@@ -215,10 +250,11 @@ export default function ShiltonPOS() {
     ? inventory 
     : inventory.filter(item => item.category === selectedCategory);
 
-  // Totals for Daily / Sales Report
-  const totalSalesAll = salesHistory.reduce((sum, s) => sum + s.total, 0);
-  const totalCostAll = salesHistory.reduce((sum, s) => sum + s.totalCost, 0);
-  const totalProfitAll = salesHistory.reduce((sum, s) => sum + s.profit, 0);
+  // Active (Non-Voided) Totals for Reports
+  const activeSales = salesHistory.filter((s) => s.status === 'Active');
+  const totalSalesAll = activeSales.reduce((sum, s) => sum + s.total, 0);
+  const totalCostAll = activeSales.reduce((sum, s) => sum + s.totalCost, 0);
+  const totalProfitAll = activeSales.reduce((sum, s) => sum + s.profit, 0);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
@@ -227,17 +263,19 @@ export default function ShiltonPOS() {
           <h1 className="text-xl font-bold text-orange-500">Shilton Family Restaurant</h1>
           <p className="text-xs text-gray-400">Logged in as: <span className="text-green-400">{user.username} ({user.role})</span></p>
         </div>
-        <nav className="flex gap-2">
-          <button onClick={() => setActiveTab('pos')} className={`px-4 py-2 rounded ${activeTab === 'pos' ? 'bg-orange-600' : 'bg-gray-700'}`}>POS / Billing</button>
-          <button onClick={() => setActiveTab('inventory')} className={`px-4 py-2 rounded ${activeTab === 'inventory' ? 'bg-orange-600' : 'bg-gray-700'}`}>Inventory / Stock</button>
+        <nav className="flex gap-2 flex-wrap">
+          <button onClick={() => setActiveTab('pos')} className={`px-3 py-2 rounded text-sm ${activeTab === 'pos' ? 'bg-orange-600' : 'bg-gray-700'}`}>POS Billing</button>
+          <button onClick={() => setActiveTab('kot')} className={`px-3 py-2 rounded text-sm ${activeTab === 'kot' ? 'bg-orange-600' : 'bg-gray-700'}`}>KOT (Kitchen)</button>
+          <button onClick={() => setActiveTab('bills')} className={`px-3 py-2 rounded text-sm ${activeTab === 'bills' ? 'bg-orange-600' : 'bg-gray-700'}`}>Bill History & Void</button>
+          <button onClick={() => setActiveTab('inventory')} className={`px-3 py-2 rounded text-sm ${activeTab === 'inventory' ? 'bg-orange-600' : 'bg-gray-700'}`}>Inventory</button>
           {user.role === 'admin' && (
             <>
-              <button onClick={() => setActiveTab('manage')} className={`px-4 py-2 rounded ${activeTab === 'manage' ? 'bg-orange-600' : 'bg-gray-700'}`}>Admin Manage</button>
-              <button onClick={() => setActiveTab('daily_report')} className={`px-4 py-2 rounded ${activeTab === 'daily_report' ? 'bg-orange-600' : 'bg-gray-700'}`}>Daily / Profit Report</button>
-              <button onClick={() => setActiveTab('ird')} className={`px-4 py-2 rounded ${activeTab === 'ird' ? 'bg-orange-600' : 'bg-gray-700'}`}>IRD Reports</button>
+              <button onClick={() => setActiveTab('manage')} className={`px-3 py-2 rounded text-sm ${activeTab === 'manage' ? 'bg-orange-600' : 'bg-gray-700'}`}>Admin Manage</button>
+              <button onClick={() => setActiveTab('daily_report')} className={`px-3 py-2 rounded text-sm ${activeTab === 'daily_report' ? 'bg-orange-600' : 'bg-gray-700'}`}>Profit Report</button>
+              <button onClick={() => setActiveTab('ird')} className={`px-3 py-2 rounded text-sm ${activeTab === 'ird' ? 'bg-orange-600' : 'bg-gray-700'}`}>IRD Reports</button>
             </>
           )}
-          <button onClick={() => setUser(null)} className="px-4 py-2 rounded bg-red-600 hover:bg-red-700">Logout</button>
+          <button onClick={() => setUser(null)} className="px-3 py-2 rounded text-sm bg-red-600 hover:bg-red-700">Logout</button>
         </nav>
       </header>
 
@@ -317,9 +355,103 @@ export default function ShiltonPOS() {
                   onClick={handleCheckout}
                   className="w-full bg-green-600 hover:bg-green-700 p-3 rounded-xl font-bold transition shadow-lg"
                 >
-                  Complete & Print Bill
+                  Complete Order & Print KOT
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* KOT (Kitchen Order Ticket) Tab */}
+        {activeTab === 'kot' && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            <h2 className="text-2xl font-bold text-orange-400">Kitchen Order Tickets (KOT)</h2>
+            <p className="text-sm text-gray-400">කිචන් එකට සකස් කිරීමට ලැබී ඇති නවතම ඇණවුම් ලැයිස්තුව.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {salesHistory.filter(s => s.status === 'Active').length === 0 ? (
+                <p className="text-gray-500">Active KOTs නැත.</p>
+              ) : (
+                salesHistory.filter(s => s.status === 'Active').map((sale) => (
+                  <div key={sale.id} className="bg-gray-800 p-5 rounded-xl border border-orange-500/50 shadow-lg">
+                    <div className="flex justify-between border-b border-gray-700 pb-2 mb-3">
+                      <span className="font-bold text-orange-400">KOT Order #{sale.id.toString().slice(-4)}</span>
+                      <span className="text-xs text-gray-400">{sale.date}</span>
+                    </div>
+                    <ul className="space-y-2">
+                      {sale.items.map((item, i) => (
+                        <li key={i} className="flex justify-between bg-gray-700/50 p-2 rounded">
+                          <span className="font-bold">{item.name}</span>
+                          <span className="bg-orange-600 px-2 py-0.5 rounded text-xs font-bold">Qty: {item.qty}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-4 flex justify-end">
+                      <button 
+                        onClick={() => window.print()} 
+                        className="bg-blue-600 hover:bg-blue-700 px-4 py-1.5 rounded text-xs font-bold"
+                      >
+                        Print KOT Ticket
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Bill History & Void Tab */}
+        {activeTab === 'bills' && (
+          <div className="max-w-5xl mx-auto space-y-6">
+            <h2 className="text-2xl font-bold">Bill History & Void Management</h2>
+            <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700 p-4 shadow-md">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-gray-700 text-gray-300">
+                    <th className="p-3">Bill ID</th>
+                    <th className="p-3">Date & Time</th>
+                    <th className="p-3">Items Purchased</th>
+                    <th className="p-3">Total Amount</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {salesHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-6 text-gray-500">No bills recorded yet.</td>
+                    </tr>
+                  ) : (
+                    salesHistory.map((sale) => (
+                      <tr key={sale.id} className={`border-t border-gray-700 ${sale.status === 'Voided' ? 'opacity-50 bg-red-950/20' : ''}`}>
+                        <td className="p-3 font-bold">#{sale.id}</td>
+                        <td className="p-3 text-xs text-gray-400">{sale.date}</td>
+                        <td className="p-3">
+                          {sale.items.map((i, idx) => (
+                            <div key={idx}>• {i.name} (x{i.qty})</div>
+                          ))}
+                        </td>
+                        <td className="p-3 text-green-400 font-bold">LKR {sale.total}.00</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-1 rounded text-xs font-bold ${sale.status === 'Active' ? 'bg-green-600' : 'bg-red-600'}`}>
+                            {sale.status}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          {sale.status === 'Active' && user.role === 'admin' && (
+                            <button
+                              onClick={() => handleVoidBill(sale.id)}
+                              className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-xs font-bold"
+                            >
+                              Void Bill
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -528,21 +660,23 @@ export default function ShiltonPOS() {
                     <th className="p-2">Sales Amount</th>
                     <th className="p-2">Cost Amount</th>
                     <th className="p-2">Profit</th>
+                    <th className="p-2">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {salesHistory.length === 0 ? (
+                  {activeSales.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-6 text-gray-500">No sales recorded yet.</td>
+                      <td colSpan={6} className="text-center py-6 text-gray-500">No active sales recorded.</td>
                     </tr>
                   ) : (
-                    salesHistory.map((s) => (
+                    activeSales.map((s) => (
                       <tr key={s.id} className="border-t border-gray-700">
                         <td className="p-2">#{s.id}</td>
                         <td className="p-2">{s.date}</td>
                         <td className="p-2 text-green-400 font-bold">LKR {s.total}.00</td>
                         <td className="p-2 text-orange-400">LKR {s.totalCost}.00</td>
                         <td className="p-2 text-blue-400 font-bold">LKR {s.profit}.00</td>
+                        <td className="p-2 text-green-500 font-bold">{s.status}</td>
                       </tr>
                     ))
                   )}
@@ -558,7 +692,7 @@ export default function ShiltonPOS() {
             <p className="text-sm text-gray-400 mb-6">ආරම්භක දිනයේ සිට මෙතෙක් සිදුවූ සියලුම ගනුදෙනු සහ බදු වාර්තා ස්වයංක්‍රීයව සටහන් වේ.</p>
             <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700 p-4 shadow-md">
               <div className="flex justify-between items-center mb-4">
-                <span className="font-bold">Total Sales Count: {salesHistory.length} Transactions</span>
+                <span className="font-bold">Total Sales Count: {activeSales.length} Transactions</span>
                 <button onClick={() => window.print()} className="bg-blue-600 px-4 py-2 rounded text-sm font-bold">Print Report</button>
               </div>
               <table className="w-full text-left border-collapse">
@@ -571,7 +705,7 @@ export default function ShiltonPOS() {
                   </tr>
                 </thead>
                 <tbody>
-                  {salesHistory.map((sale) => (
+                  {activeSales.map((sale) => (
                     <tr key={sale.id} className="border-t border-gray-700 text-sm">
                       <td className="p-2">#{sale.id}</td>
                       <td className="p-2">{sale.date}</td>
